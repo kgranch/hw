@@ -1,6 +1,6 @@
 (*
  * Hedgewars, a free turn based strategy game
- * Copyright (c) 2004-2014 Andrey Korotaev <unC0Rr@gmail.com>
+ * Copyright (c) 2004-2013 Andrey Korotaev <unC0Rr@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -13,7 +13,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  *)
 
 {$INCLUDE "options.inc"}
@@ -108,11 +108,9 @@ var BotLevel: Byte;
     ap: TAttackParams;
     Score, i, t, n, dAngle: LongInt;
     a, aa: TAmmoType;
-    useThisActions: boolean;
 begin
 BotLevel:= Me^.Hedgehog^.BotLevel;
 windSpeed:= hwFloat2Float(cWindSpeed);
-useThisActions:= false;
 
 for i:= 0 to Pred(Targets.Count) do
     if (Targets.ar[i].Score >= 0) and (not StopThinking) then
@@ -130,36 +128,13 @@ for i:= 0 to Pred(Targets.Count) do
 {$HINTS OFF}
             Score:= AmmoTests[a].proc(Me, Targets.ar[i], BotLevel, ap);
 {$HINTS ON}
-            if (Score > BadTurn) and (Actions.Score + Score > BestActions.Score) then
+            if Actions.Score + Score > BestActions.Score then
                 if (BestActions.Score < 0) or (Actions.Score + Score > BestActions.Score + Byte(BotLevel - 1) * 2048) then
                     begin
-                    if useThisActions then 
-                        begin
-                        BestActions.Count:= Actions.Count
-                        end
-                    else
-                        begin
-                        BestActions:= Actions;
-                        BestActions.isWalkingToABetterPlace:= false;
-                        useThisActions:= true
-                        end;
+                    BestActions:= Actions;
+                    inc(BestActions.Score, Score);
+                    BestActions.isWalkingToABetterPlace:= false;
 
-                    BestActions.Score:= Actions.Score + Score;
-
-                    if HHHasAmmo(Me^.Hedgehog^, amInvulnerable) > 0 then
-                        begin
-                        AddAction(BestActions, aia_Weapon, Longword(amInvulnerable), 80, 0, 0);
-                        AddAction(BestActions, aia_attack, aim_push, 10, 0, 0);
-                        AddAction(BestActions, aia_attack, aim_release, 10, 0, 0);
-                        end;
-                        
-                    if HHHasAmmo(Me^.Hedgehog^, amExtraDamage) > 0 then
-                        begin
-                        AddAction(BestActions, aia_Weapon, Longword(amExtraDamage), 80, 0, 0);
-                        AddAction(BestActions, aia_attack, aim_push, 10, 0, 0);
-                        AddAction(BestActions, aia_attack, aim_release, 10, 0, 0);
-                        end; 
-    
                     AddAction(BestActions, aia_Weapon, Longword(a), 300 + random(400), 0, 0);
 
                     if (ap.Angle > 0) then
@@ -384,10 +359,6 @@ if ((CurrentHedgehog^.MultiShootAttacks = 0) or ((Ammoz[Me^.Hedgehog^.CurAmmoTyp
 
             if GoInfo.FallPix >= FallPixForBranching then
                 Push(ticks, Actions, Me^, Me^.Message xor 3); // aia_Left xor 3 = aia_Right
-
-            if (StartTicks > GameTicks - 1500) and (not StopThinking) then
-                SDL_Delay(1000);
-
             end {while};
 
         if BestRate > BaseRate then
@@ -399,13 +370,12 @@ end;
 function Think(Me: PGear): LongInt; cdecl; export;
 var BackMe, WalkMe: TGear;
     switchCount: LongInt;
-    currHedgehogIndex, itHedgehog, switchesNum, i: Longword;
+    StartTicks, currHedgehogIndex, itHedgehog, switchesNum, i: Longword;
     switchImmediatelyAvailable: boolean;
     Actions: TActions;
 begin
 dmgMod:= 0.01 * hwFloat2Float(cDamageModifier) * cDamagePercent;
 StartTicks:= GameTicks;
-
 currHedgehogIndex:= CurrentTeam^.CurrHedgehog;
 itHedgehog:= currHedgehogIndex;
 switchesNum:= 0;
@@ -427,17 +397,30 @@ if ((Me^.State and gstAttacked) = 0) or isInMultiShoot then
             Actions.Score:= 0;
             if switchesNum > 0 then
                 begin
-                if (not switchImmediatelyAvailable)  then
+				if (CurrentTeam^.Hedgehogs[itHedgehog].Effects[heFrozen] == 0) then
+                    if not switchImmediatelyAvailable  then
+                        begin
+                        // when AI has to use switcher, make it cost smth unless they have a lot of switches
+                        if (switchCount < 10) then Actions.Score:= (-27+switchCount*3)*4000;
+                        AddAction(Actions, aia_Weapon, Longword(amSwitch), 300 + random(200), 0, 0);
+                        AddAction(Actions, aia_attack, aim_push, 300 + random(300), 0, 0);
+                        AddAction(Actions, aia_attack, aim_release, 1, 0, 0);
+                        end;
+                    for i:= 1 to switchesNum do
+                        AddAction(Actions, aia_Switch, 0, 300 + random(200), 0, 0);
+                    end;
+				if not switchImmediatelyAvailable  then
                     begin
                     // when AI has to use switcher, make it cost smth unless they have a lot of switches
-                    if (switchCount < 10) then Actions.Score:= (-27+switchCount*3)*4000;
-                    AddAction(Actions, aia_Weapon, Longword(amSwitch), 300 + random(200), 0, 0);
-                    AddAction(Actions, aia_attack, aim_push, 300 + random(300), 0, 0);
-                    AddAction(Actions, aia_attack, aim_release, 1, 0, 0);
+                    if (switchCount < 10) then Actions.Score:= (-13+switchCount*3)*2000;
+                    AddAction(Actions, aia_Weapon, Longword(amSwitch), 150 + random(50), 0, 0);
+                    AddAction(Actions, aia_attack, aim_push, 200 + random(150), 0, 0);
+                    AddAction(Actions, aia_Skip, aim_release, _0_1, 0, 0);
                     end;
                 for i:= 1 to switchesNum do
-                    AddAction(Actions, aia_Switch, 0, 300 + random(200), 0, 0);
+                    AddAction(Actions, aia_Switch, 0, 100 + random(100), 0, 0);
                 end;
+			end;
             Walk(@WalkMe, Actions);
 
             // find another hog in team
@@ -451,8 +434,8 @@ if ((Me^.State and gstAttacked) = 0) or isInMultiShoot then
             or (itHedgehog = currHedgehogIndex)
             or BestActions.isWalkingToABetterPlace;
 
-            if (StartTicks > GameTicks - 1500) and (not StopThinking) then
-                SDL_Delay(1000);
+        if (StartTicks > GameTicks - 1500) and (not StopThinking) then
+            SDL_Delay(1000);
 
         if (BestActions.Score < -1023) and (not BestActions.isWalkingToABetterPlace) then
             begin
@@ -467,13 +450,11 @@ else
     i:= 12;
     while (not StopThinking) and (BestActions.Count = 0) and (i > 0) do
         begin
-
 (*
         // Maybe this would get a bit of movement out of them? Hopefully not *toward* water. Need to check how often he'd choose that strategy
         if SuddenDeathDmg and ((hwRound(BackMe.Y)+cWaterRise*2) > cWaterLine) then
             AddBonus(hwRound(BackMe.X), hwRound(BackMe.Y), 250, -40);
 *)
-
         FillBonuses(true);
         WalkMe:= BackMe;
         Actions.Count:= 0;
